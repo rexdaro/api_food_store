@@ -1,0 +1,5 @@
+sqlmodel==0.0.38
+psycopg[binary]==3.3.3
+sqlalchemy==2.0.49
+python-dotenv==1.0.1
+fastapi[standard]==0.115.11
