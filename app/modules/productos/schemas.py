@@ -42,3 +42,7 @@ class ProductoRead(ProductoBase):
     """
     id: int
     disponible: bool
+
+class ProductoPaginated(SQLModel):
+    items: list[ProductoRead]
+    total: int

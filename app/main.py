@@ -9,7 +9,7 @@ from app.core.config import settings
 
 # IMPORTANTE: Registramos los modelos antes que los routers
 # Esto evita el error "failed to locate a name ('Producto')"
-import app.models  
+import app.models
 
 from app.api.v1.api import api_router
 

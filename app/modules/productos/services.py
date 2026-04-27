@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
-from sqlmodel import Session, select
+from sqlmodel import Session, select, func
 from .models import Producto
 from .schemas import ProductoCreate, ProductoUpdate
 from app.modules.producto_categoria.producto_categoria_model import ProductoCategoria
@@ -17,19 +17,36 @@ def create_producto(session: Session, producto_in: ProductoCreate) -> Producto:
     session.refresh(nuevo_producto)
     return nuevo_producto
 
-
-def get_productos(session: Session, categoria_id: Optional[int] = None) -> List[Producto]:
+def get_productos(
+    session: Session, 
+    categoria_id: Optional[int] = None,
+    search: Optional[str] = None,
+    offset: int = 0,
+    limit: int = 100
+) -> dict:
     """
-    Retorna la lista de productos disponibles. 
-    Opcionalmente filtra por categoria_id.
+    Retorna la lista de productos disponibles con soporte para paginación y filtros,
+    junto con el conteo total para la UI.
     """
     query = select(Producto).where(Producto.disponible)
     
     if categoria_id:
-        # Usamos la tabla puente para filtrar
         query = query.join(ProductoCategoria).where(ProductoCategoria.categoria_id == categoria_id)
-        
-    return session.exec(query).all()
+    
+    if search:
+        query = query.where(
+            (Producto.nombre.ilike(f"%{search}%")) | 
+            (Producto.descripcion.ilike(f"%{search}%"))
+        )
+    
+    # Obtenemos el total antes de aplicar offset/limit
+    total_query = select(func.count()).select_from(query.subquery())
+    total = session.exec(total_query).one()
+    
+    # Obtenemos los items de la página actual
+    items = session.exec(query.offset(offset).limit(limit)).all()
+    
+    return {"items": items, "total": total}
 
 
 def get_productos_inactivos(session: Session) -> List[Producto]:

@@ -1,24 +1,44 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlmodel import Session
-from typing import List, Optional
+from typing import List, Optional, Annotated
 
 from app.db.database import get_session
 from . import services
-from .schemas import ProductoCreate, ProductoUpdate, ProductoRead
+from .schemas import ProductoCreate, ProductoUpdate, ProductoRead, ProductoPaginated
 
 router = APIRouter()
 
 
-@router.get("/", response_model=List[ProductoRead])
+@router.get("/", response_model=ProductoPaginated)
 async def read_productos(
-    categoria_id: Optional[int] = None, # <-- Nuevo parámetro opcional
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
+    categoria_id: Annotated[
+        Optional[int], 
+        Query(description="Filtrar por el ID de la categoría")
+    ] = None,
+    offset: Annotated[
+        int, 
+        Query(ge=0, description="Número de registros a saltar")
+    ] = 0,
+    limit: Annotated[
+        int, 
+        Query(ge=1, le=100, description="Máximo de registros a retornar")
+    ] = 100,
+    search: Annotated[
+        Optional[str], 
+        Query(description="Buscar por nombre o descripción")
+    ] = None,
 ):
     """
-    Lista los productos. Se puede filtrar por categoria_id enviándolo como parámetro.
-    Ejemplo: /productos/?categoria_id=5
+    Lista los productos con soporte para paginación y filtros.
     """
-    return services.get_productos(session, categoria_id=categoria_id)
+    return services.get_productos(
+        session, 
+        categoria_id=categoria_id, 
+        search=search,
+        offset=offset, 
+        limit=limit
+    )
 
 
 @router.get("/inactivos", response_model=List[ProductoRead])
