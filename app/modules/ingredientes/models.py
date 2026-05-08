@@ -4,7 +4,7 @@ from datetime import datetime
 import sqlalchemy as sa
 
 # Tabla intermedia
-from app.modules.producto_ingrediente.producto_ingrediente_model import ProductoIngrediente
+from app.modules.productos.models import ProductoIngrediente
 
 if TYPE_CHECKING:
     from app.modules.productos.models import Producto

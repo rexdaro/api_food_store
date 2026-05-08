@@ -1,91 +1,123 @@
 from datetime import datetime
 from typing import List, Optional
-from sqlmodel import Session, select, func
-from .models import Producto
-from .schemas import ProductoCreate, ProductoUpdate
-from app.modules.producto_categoria.producto_categoria_model import ProductoCategoria
+from app.db.unit_of_work import UnitOfWork
+from .models import Producto, ProductoCategoria, ProductoIngrediente
+from .schemas import (
+    ProductoCreate, 
+    ProductoUpdate, 
+    ProductoCategoriaCreate, 
+    ProductoIngredienteCreate
+)
 
+"""
+CAPA DE SERVICIO (Domain Services)
 
-def create_producto(session: Session, producto_in: ProductoCreate) -> Producto:
-    """
-    Crea un nuevo producto en la base de datos.
-    Se inicializa como disponible por defecto.
-    """
-    nuevo_producto = Producto(**producto_in.dict(), disponible=True)
-    session.add(nuevo_producto)
-    session.commit()
-    session.refresh(nuevo_producto)
+Contiene la lógica de negocio pura de la aplicación. El Service orquestra 
+las operaciones llamando a los Repositorios a través del Unit of Work (UoW). 
+Es el encargado de decidir cuándo una operación de negocio es exitosa y 
+debe confirmarse (commit) o fallida (rollback).
+"""
+
+def create_producto(uow: UnitOfWork, producto_in: ProductoCreate) -> Producto:
+    nuevo_producto = Producto(**producto_in.model_dump(), disponible=True)
+    uow.productos.create(uow.session, nuevo_producto)
+    uow.commit()
+    uow.refresh(nuevo_producto)
     return nuevo_producto
 
 def get_productos(
-    session: Session, 
+    uow: UnitOfWork, 
     categoria_id: Optional[int] = None,
     search: Optional[str] = None,
     offset: int = 0,
     limit: int = 100
 ) -> dict:
-    """
-    Retorna la lista de productos disponibles con soporte para paginación y filtros,
-    junto con el conteo total para la UI.
-    """
-    query = select(Producto).where(Producto.disponible)
-    
-    if categoria_id:
-        query = query.join(ProductoCategoria).where(ProductoCategoria.categoria_id == categoria_id)
-    
-    if search:
-        query = query.where(
-            (Producto.nombre.ilike(f"%{search}%")) | 
-            (Producto.descripcion.ilike(f"%{search}%"))
-        )
-    
-    # Obtenemos el total antes de aplicar offset/limit
-    total_query = select(func.count()).select_from(query.subquery())
-    total = session.exec(total_query).one()
-    
-    # Obtenemos los items de la página actual
-    items = session.exec(query.offset(offset).limit(limit)).all()
-    
-    return {"items": items, "total": total}
+    return uow.productos.get_all(
+        uow.session, categoria_id, search, offset, limit, only_active=True
+    )
 
+def get_productos_inactivos(uow: UnitOfWork) -> List[Producto]:
+    result = uow.productos.get_all(uow.session, only_active=False)
+    return result["items"]
 
-def get_productos_inactivos(session: Session) -> List[Producto]:
-    """
-    Retorna la lista de productos que han sido borrados lógicamente.
-    """
-    return session.exec(select(Producto).where(~Producto.disponible)).all()
-
-
-def get_producto_by_id(session: Session, producto_id: int) -> Optional[Producto]:
-    """
-    Busca un producto por su clave primaria.
-    """
-    return session.get(Producto, producto_id)
-
+def get_producto_by_id(uow: UnitOfWork, producto_id: int) -> Optional[Producto]:
+    return uow.productos.get_by_id(uow.session, producto_id)
 
 def update_producto(
-    session: Session, producto_db: Producto, producto_in: ProductoUpdate
+    uow: UnitOfWork, producto_db: Producto, producto_in: ProductoUpdate
 ) -> Producto:
-    """
-    Actualiza parcialmente los campos de un producto existente.
-    """
-    datos_nuevos = producto_in.dict(exclude_unset=True)
-
+    datos_nuevos = producto_in.model_dump(exclude_unset=True)
     for campo, valor in datos_nuevos.items():
         setattr(producto_db, campo, valor)
-
-    session.add(producto_db)
-    session.commit()
-    session.refresh(producto_db)
+    
+    uow.productos.update(uow.session, producto_db)
+    uow.commit()
+    uow.refresh(producto_db)
     return producto_db
 
-
-def delete_producto(session: Session, producto: Producto) -> None:
-    """
-    Realiza un borrado lógico marcando el producto como no disponible.
-    """
+def delete_producto(uow: UnitOfWork, producto: Producto) -> None:
     producto.disponible = False
     producto.deleted_at = datetime.now()
+    uow.productos.delete_logic(uow.session, producto)
+    uow.commit()
 
-    session.add(producto)
-    session.commit()
+# ============================================================
+# LÓGICA DE VINCULACIÓN (Atomicidad vía Unit of Work)
+# Aquí coordinamos múltiples repositorios bajo una misma transacción.
+# Si una vinculación falla, el UoW asegura que no se persista nada.
+# ============================================================
+
+def vincular_producto_categoria(uow: UnitOfWork, vinculacion_in: ProductoCategoriaCreate) -> ProductoCategoria:
+    
+    if not uow.productos.get_by_id(uow.session, vinculacion_in.producto_id):
+        raise ValueError(f"El producto con ID {vinculacion_in.producto_id} no existe")
+    
+    if not uow.categorias.get_by_id(uow.session, vinculacion_in.categoria_id):
+        raise ValueError(f"La categoría con ID {vinculacion_in.categoria_id} no existe")
+        
+    existente = uow.productos.get_vinculacion_categoria(
+        uow.session, vinculacion_in.producto_id, vinculacion_in.categoria_id
+    )
+    if existente:
+        return existente
+        
+    nueva = ProductoCategoria(**vinculacion_in.model_dump())
+    uow.productos.save_vinculacion_categoria(uow.session, nueva)
+    uow.commit()
+    uow.refresh(nueva)
+    return nueva
+
+def desvincular_producto_categoria(uow: UnitOfWork, producto_id: int, categoria_id: int) -> bool:
+    v = uow.productos.get_vinculacion_categoria(uow.session, producto_id, categoria_id)
+    if not v:
+        return False
+    uow.productos.remove_vinculacion_categoria(uow.session, v)
+    uow.commit()
+    return True
+
+def vincular_producto_ingrediente(uow: UnitOfWork, vinculacion_in: ProductoIngredienteCreate) -> ProductoIngrediente:
+    if not uow.productos.get_by_id(uow.session, vinculacion_in.producto_id):
+        raise ValueError(f"El producto con ID {vinculacion_in.producto_id} no existe")
+        
+    if not uow.ingredientes.get_by_id(uow.session, vinculacion_in.ingrediente_id):
+        raise ValueError(f"El ingrediente con ID {vinculacion_in.ingrediente_id} no existe")
+        
+    existente = uow.productos.get_vinculacion_ingrediente(
+        uow.session, vinculacion_in.producto_id, vinculacion_in.ingrediente_id
+    )
+    if existente:
+        return existente
+        
+    nueva = ProductoIngrediente(**vinculacion_in.model_dump())
+    uow.productos.save_vinculacion_ingrediente(uow.session, nueva)
+    uow.commit()
+    uow.refresh(nueva)
+    return nueva
+
+def desvincular_producto_ingrediente(uow: UnitOfWork, producto_id: int, ingrediente_id: int) -> bool:
+    v = uow.productos.get_vinculacion_ingrediente(uow.session, producto_id, ingrediente_id)
+    if not v:
+        return False
+    uow.productos.remove_vinculacion_ingrediente(uow.session, v)
+    uow.commit()
+    return True

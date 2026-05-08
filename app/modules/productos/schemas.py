@@ -1,7 +1,17 @@
 from sqlmodel import SQLModel, Field
 from typing import Optional
+from datetime import datetime
 from decimal import Decimal
 import sqlalchemy as sa
+
+"""
+CAPA DE ESQUEMAS (Data Transfer Objects - DTOs)
+
+Aquí definimos los contratos de datos que viajan entre el cliente y el servidor.
+Separamos la lógica de validación de los modelos de base de datos para:
+1. Validar datos de entrada (Create/Update).
+2. Controlar la salida de datos (Read) y evitar exponer campos sensibles.
+"""
 
 class ProductoBase(SQLModel):
     """Campos compartidos entre creación, lectura y base de datos."""
@@ -46,3 +56,29 @@ class ProductoRead(ProductoBase):
 class ProductoPaginated(SQLModel):
     items: list[ProductoRead]
     total: int
+
+# ============================================================
+# SCHEMAS PARA TABLAS INTERMEDIAS
+# ============================================================
+
+class ProductoCategoriaBase(SQLModel):
+    producto_id: int
+    categoria_id: int
+    es_principal: bool = False
+
+class ProductoCategoriaCreate(ProductoCategoriaBase):
+    pass
+
+class ProductoCategoriaRead(ProductoCategoriaBase):
+    created_at: datetime
+
+class ProductoIngredienteBase(SQLModel):
+    producto_id: int
+    ingrediente_id: int
+    es_removible: bool = False
+
+class ProductoIngredienteCreate(ProductoIngredienteBase):
+    pass
+
+class ProductoIngredienteRead(ProductoIngredienteBase):
+    pass

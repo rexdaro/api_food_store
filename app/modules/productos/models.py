@@ -1,18 +1,46 @@
-from sqlmodel import Field, Relationship
+from sqlmodel import SQLModel, Field, Relationship
 from typing import Optional, List, TYPE_CHECKING
 from datetime import datetime
 import sqlalchemy as sa
+from .schemas import ProductoBase
 
-# Tablas intermedias (No causan circular imports)
-from app.modules.producto_categoria.producto_categoria_model import ProductoCategoria
-from app.modules.producto_ingrediente.producto_ingrediente_model import ProductoIngrediente
+# ============================================================
+# TABLAS DE VINCULACIÓN (Junction Tables)
+# Se centralizan aquí para simplificar la gestión de relaciones M:N
+# entre Productos, Categorías e Ingredientes.
+# ============================================================
+
+class ProductoCategoria(SQLModel, table=True):
+    __tablename__ = "producto_categoria"
+    producto_id: int = Field(
+        sa_column=sa.Column(sa.BigInteger, sa.ForeignKey("producto.id"), primary_key=True)
+    )
+    categoria_id: int = Field(
+        sa_column=sa.Column(sa.BigInteger, sa.ForeignKey("categoria.id"), primary_key=True)
+    )
+    es_principal: bool = Field(default=False)
+    created_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=sa.Column(sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now())
+    )
+
+class ProductoIngrediente(SQLModel, table=True):
+    __tablename__ = "producto_ingrediente"
+    producto_id: int = Field(
+        sa_column=sa.Column(sa.BigInteger, sa.ForeignKey("producto.id"), primary_key=True)
+    )
+    ingrediente_id: int = Field(
+        sa_column=sa.Column(sa.BigInteger, sa.ForeignKey("ingrediente.id"), primary_key=True)
+    )
+    es_removible: bool = Field(default=False)
+
 
 if TYPE_CHECKING:
     from app.modules.categorias.models import Categoria
     from app.modules.ingredientes.models import Ingrediente
 
 
-from .schemas import ProductoBase
+
 
 # ============================================================
 # MODELO - Define la tabla "producto" en la base de datos

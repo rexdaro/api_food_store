@@ -7,7 +7,9 @@ sys.path.append(os.getcwd())
 
 from sqlmodel import Session, select
 from app.db.database import engine
-from app.models import Producto, Categoria, Ingrediente, ProductoCategoria, ProductoIngrediente
+from app.modules.productos.models import Producto, ProductoCategoria, ProductoIngrediente
+from app.modules.categorias.models import Categoria
+from app.modules.ingredientes.models import Ingrediente
 import random
 
 def seed():

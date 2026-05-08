@@ -14,8 +14,9 @@ import app.models
 from app.api.v1.api import api_router
 
 
-# 1. LIFESPAN: Tareas que ocurren antes de que el servidor acepte pedidos
-# (Como el ApplicationContext de Spring)
+# 1. LIFESPAN: Gestiona el ciclo de vida de la aplicación.
+# Se ejecuta antes de que el servidor acepte peticiones (Setup) 
+# y al cerrarse (Teardown).
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"🚀 Iniciando servidor: {settings.PROJECT_NAME}")
@@ -60,7 +61,7 @@ async def root():
     }
 
 
-# 4. PUNTO DE ENTRADA (Simula el mvn spring-boot:run)
+# 4. PUNTO DE ENTRADA: Ejecución directa del servidor de desarrollo.
 if __name__ == "__main__":
     logger.info(f"Servidor configurado en: http://{settings.HOST}:{settings.PORT}")
     uvicorn.run(
