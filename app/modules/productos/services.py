@@ -19,11 +19,12 @@ debe confirmarse (commit) o fallida (rollback).
 """
 
 def create_producto(uow: UnitOfWork, producto_in: ProductoCreate) -> Producto:
-    nuevo_producto = Producto(**producto_in.model_dump(), disponible=True)
-    uow.productos.create(uow.session, nuevo_producto)
-    uow.commit()
-    uow.refresh(nuevo_producto)
-    return nuevo_producto
+    with uow:
+        nuevo_producto = Producto(**producto_in.model_dump(), disponible=True)
+        uow.productos.create(uow.session, nuevo_producto)
+        uow.commit()
+        uow.refresh(nuevo_producto)
+        return nuevo_producto
 
 def get_productos(
     uow: UnitOfWork, 
@@ -32,6 +33,7 @@ def get_productos(
     offset: int = 0,
     limit: int = 100
 ) -> dict:
+    # Las lecturas no necesitan transaccionalidad, pero usamos el uow.session
     return uow.productos.get_all(
         uow.session, categoria_id, search, offset, limit, only_active=True
     )
@@ -46,20 +48,22 @@ def get_producto_by_id(uow: UnitOfWork, producto_id: int) -> Optional[Producto]:
 def update_producto(
     uow: UnitOfWork, producto_db: Producto, producto_in: ProductoUpdate
 ) -> Producto:
-    datos_nuevos = producto_in.model_dump(exclude_unset=True)
-    for campo, valor in datos_nuevos.items():
-        setattr(producto_db, campo, valor)
-    
-    uow.productos.update(uow.session, producto_db)
-    uow.commit()
-    uow.refresh(producto_db)
-    return producto_db
+    with uow:
+        datos_nuevos = producto_in.model_dump(exclude_unset=True)
+        for campo, valor in datos_nuevos.items():
+            setattr(producto_db, campo, valor)
+        
+        uow.productos.update(uow.session, producto_db)
+        uow.commit()
+        uow.refresh(producto_db)
+        return producto_db
 
 def delete_producto(uow: UnitOfWork, producto: Producto) -> None:
-    producto.disponible = False
-    producto.deleted_at = datetime.now()
-    uow.productos.delete_logic(uow.session, producto)
-    uow.commit()
+    with uow:
+        producto.disponible = False
+        producto.deleted_at = datetime.now()
+        uow.productos.delete_logic(uow.session, producto)
+        uow.commit()
 
 # ============================================================
 # LÓGICA DE VINCULACIÓN (Atomicidad vía Unit of Work)
@@ -68,56 +72,59 @@ def delete_producto(uow: UnitOfWork, producto: Producto) -> None:
 # ============================================================
 
 def vincular_producto_categoria(uow: UnitOfWork, vinculacion_in: ProductoCategoriaCreate) -> ProductoCategoria:
-    
-    if not uow.productos.get_by_id(uow.session, vinculacion_in.producto_id):
-        raise ValueError(f"El producto con ID {vinculacion_in.producto_id} no existe")
-    
-    if not uow.categorias.get_by_id(uow.session, vinculacion_in.categoria_id):
-        raise ValueError(f"La categoría con ID {vinculacion_in.categoria_id} no existe")
+    with uow:
+        if not uow.productos.get_by_id(uow.session, vinculacion_in.producto_id):
+            raise ValueError(f"El producto con ID {vinculacion_in.producto_id} no existe")
         
-    existente = uow.productos.get_vinculacion_categoria(
-        uow.session, vinculacion_in.producto_id, vinculacion_in.categoria_id
-    )
-    if existente:
-        return existente
-        
-    nueva = ProductoCategoria(**vinculacion_in.model_dump())
-    uow.productos.save_vinculacion_categoria(uow.session, nueva)
-    uow.commit()
-    uow.refresh(nueva)
-    return nueva
+        if not uow.categorias.get_by_id(uow.session, vinculacion_in.categoria_id):
+            raise ValueError(f"La categoría con ID {vinculacion_in.categoria_id} no existe")
+            
+        existente = uow.productos.get_vinculacion_categoria(
+            uow.session, vinculacion_in.producto_id, vinculacion_in.categoria_id
+        )
+        if existente:
+            return existente
+            
+        nueva = ProductoCategoria(**vinculacion_in.model_dump())
+        uow.productos.save_vinculacion_categoria(uow.session, nueva)
+        uow.commit()
+        uow.refresh(nueva)
+        return nueva
 
 def desvincular_producto_categoria(uow: UnitOfWork, producto_id: int, categoria_id: int) -> bool:
-    v = uow.productos.get_vinculacion_categoria(uow.session, producto_id, categoria_id)
-    if not v:
-        return False
-    uow.productos.remove_vinculacion_categoria(uow.session, v)
-    uow.commit()
-    return True
+    with uow:
+        v = uow.productos.get_vinculacion_categoria(uow.session, producto_id, categoria_id)
+        if not v:
+            return False
+        uow.productos.remove_vinculacion_categoria(uow.session, v)
+        uow.commit()
+        return True
 
 def vincular_producto_ingrediente(uow: UnitOfWork, vinculacion_in: ProductoIngredienteCreate) -> ProductoIngrediente:
-    if not uow.productos.get_by_id(uow.session, vinculacion_in.producto_id):
-        raise ValueError(f"El producto con ID {vinculacion_in.producto_id} no existe")
-        
-    if not uow.ingredientes.get_by_id(uow.session, vinculacion_in.ingrediente_id):
-        raise ValueError(f"El ingrediente con ID {vinculacion_in.ingrediente_id} no existe")
-        
-    existente = uow.productos.get_vinculacion_ingrediente(
-        uow.session, vinculacion_in.producto_id, vinculacion_in.ingrediente_id
-    )
-    if existente:
-        return existente
-        
-    nueva = ProductoIngrediente(**vinculacion_in.model_dump())
-    uow.productos.save_vinculacion_ingrediente(uow.session, nueva)
-    uow.commit()
-    uow.refresh(nueva)
-    return nueva
+    with uow:
+        if not uow.productos.get_by_id(uow.session, vinculacion_in.producto_id):
+            raise ValueError(f"El producto con ID {vinculacion_in.producto_id} no existe")
+            
+        if not uow.ingredientes.get_by_id(uow.session, vinculacion_in.ingrediente_id):
+            raise ValueError(f"El ingrediente con ID {vinculacion_in.ingrediente_id} no existe")
+            
+        existente = uow.productos.get_vinculacion_ingrediente(
+            uow.session, vinculacion_in.producto_id, vinculacion_in.ingrediente_id
+        )
+        if existente:
+            return existente
+            
+        nueva = ProductoIngrediente(**vinculacion_in.model_dump())
+        uow.productos.save_vinculacion_ingrediente(uow.session, nueva)
+        uow.commit()
+        uow.refresh(nueva)
+        return nueva
 
 def desvincular_producto_ingrediente(uow: UnitOfWork, producto_id: int, ingrediente_id: int) -> bool:
-    v = uow.productos.get_vinculacion_ingrediente(uow.session, producto_id, ingrediente_id)
-    if not v:
-        return False
-    uow.productos.remove_vinculacion_ingrediente(uow.session, v)
-    uow.commit()
-    return True
+    with uow:
+        v = uow.productos.get_vinculacion_ingrediente(uow.session, producto_id, ingrediente_id)
+        if not v:
+            return False
+        uow.productos.remove_vinculacion_ingrediente(uow.session, v)
+        uow.commit()
+        return True
